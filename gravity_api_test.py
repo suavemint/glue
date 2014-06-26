@@ -15,7 +15,19 @@ def expiration_timestamp(lifetime=1200):
     return time.time() + lifetime
     
     
-def call_url(url='', method='GET', route='forms'):
+def call_url(method='GET', route='forms'):
+  import time, requests, logging
+  
+  logging.basicConfig(level=logging.DEBUG)  
+  logger = logging.getLogger(__name__)
+#  logger.setLevel(logging.INFO)
+  
+  
+#  print 'Calling route %s ...' % route
+
+  logger.info('Sending call to route %s' % route)
+  
+#  original_url = url
   base_url = 'http://www.reclaimamericapac.com/gravityformsapi/'
   public_key = '5dd413313e'
   private_key = '5518f270a33c1c6'
@@ -24,36 +36,43 @@ def call_url(url='', method='GET', route='forms'):
   string_to_sign = public_key + ':' + method + ':' + route + ':' + current_time
   signature = calculate_signature(string_to_sign, private_key)
   url = base_url + route + '/?api_key=' + public_key + '&signature=' + signature + '&expires=' + current_time
-  
+#  print url
   request = requests.get(url)
+#  print request.content
+  
+  if request is None or request.json()['response'] == 'Not authorized':
+    print 'Not authorized. Trying again...'
+    time.sleep(1)
+    call_url(method, route)
+    
+  return request
+#  print request.json()
+  
+  try:
+#    r = requests.get(original_url).json()
+#    print route
+#    return request
+    pass
+  except ValueError as e:
+    print 'Server refused. Waiting two seconds before trying request again...'
+    time.sleep(2)
+    call_url(url, method, route)
   
 #  if request['response'] != 'Not available':  
-  return requests.get(url)
+#    print 'Forms retrieved from %s' % url
+#    return requests.get(url)
 #  print 'Waiting two seconds...'
 #  time.sleep(2)
-  
-    
-def get_forms(url):
-  import time, requests as r
-  
-  time_to_wait = 5
-  # Put code here to call the server.
-  
-  request = r.get(url)
-  
-  # Next, if randomly not authorized, try again:
-  if output['response'] == 'Not authorized':
-    time.sleep(time_to_wait)
-    print 'Waiting for %i seconds...' % time_to_wait
-    get_forms(url)
-    
-  print 'Forms retrieved from %s' % url  
-  return output
+#  call_url(url, method, route)
+##
+# END call_url
+##
+
 
 ###
 if __name__ == '__main__':
   
-    import requests
+    import requests, logging
 
     base_url = 'http://www.reclaimamericapac.com/gravityformsapi/'
     public_key = '5dd413313e'
@@ -65,7 +84,32 @@ if __name__ == '__main__':
     signature = calculate_signature(string_to_sign, private_key) 
     url = base_url + route + '/?api_key=' + public_key + '&signature=' + signature + '&expires=' + str(expiration_timestamp())[:-3]
 #    test_request = requests.get(url)
-#    forms = test_request.json()['response']
+
+    logger = logging.getLogger(__name__)
+    logger.info('Getting ')
+
+    test_request = call_url()
+    forms = test_request.json()['response']
+    
+#    print forms['60']
+    
+#    form_dict = {forms[k] for k in forms}
+#    print form_dict
+    
+    form_numbers_dict = [x for x in forms]
+#    print form_numbers_dict
+    
+    complete_entries_dict = {}
+    
+    # The verb structure for retrieving the entries of a given form is:
+    # GET /forms/[Form ID]/entries.
+    
+    for form_number in form_numbers_dict:
+      entry_specific_entries = call_url('GET', 'forms/'+str(form_number)+'/entries')
+#      print 'Object returned:',entry_specific_entries
+    
+#    form_dict = [y:forms[y]['id'] for y in form_numbers_dict]
+#    print form_dict
 
     # JSON has the following structure:
     # {u'response': {u'41': {u'entries': u'85',
@@ -93,35 +137,65 @@ if __name__ == '__main__':
     get_url = 'http://www.reclaimamericapac.com/gravityformsapi/'
     route = 'entries'
     
-    next_test = call_url(get_url+'entries','GET', route)
-    next_test_json = next_test.json()['response']
+    recent_entries = call_url('GET', route)
+    recent_entries_json = recent_entries.json()['response']
     
-    total_count_entries = next_test_json['total_count']
-    print total_count_entries
+#    total_count_entries = recent_entries_json['total_count']
+#    print 'Total possible entries:', total_count_entries
+#    print recent_entries_json
+#    print recent_entries_json['entries'][0]
+
+    import csv
     
-    for entry in next_test_json['entries']:
-      payment = entry['payment_method']
-      payment_amount = entry['payment_amount']
-      payment_status = entry['payment_status']
-      payment_date = entry['payment_date']
-      currency = entry['currency']
-      
-      id = entry['id']
-      created_by = entry['created_by']
-      first_name = entry['1']
-      last_name = entry['2']
-      email_address = entry['4']
-      facebook_profile_link = entry['5']
-            
-      ip = entry['ip']
-      
-      print email_address
-      
-      
+#    recent_entries_output = {}
     
-#    print next_test_json['response']
+    with open('recent_entries.csv','w') as f:
+        recent_entries_output = csv.writer(f)
+#      for row in recent_entries_json:   
+        for entry in recent_entries_json['entries']:
+          payment = entry['payment_method']
+          payment_amount = entry['payment_amount']
+          payment_status = entry['payment_status']
+          payment_date = entry['payment_date']
+          transaction_id = entry['transaction_id']
+          transaction_type = entry['transaction_type']
+          currency = entry['currency']
+          
+          id = entry['id']
+          created_by = entry['created_by']
+          first_name = entry['1']
+          last_name = entry['2']
+          zip_code = entry['3']
+          email_address = entry['4']
+          
+          ip = entry['ip']
+          facebook_profile_link = entry['5']
+
+          status = entry['status']
+          is_starred = entry['is_starred']
+          date_created = entry['date_created']
+          
+          user_agent = entry['user_agent']
+          
+          recent_entries_output.writerow((first_name, last_name, email_address, \
+                                          facebook_profile_link, zip_code, created_by, status,\
+                                          is_starred, date_created, user_agent, payment_date,\
+                                          payment_status, currency, payment_amount, transaction_id,
+                                          transaction_type))  
+
+
+      
+#      form_retrieval_route = 'forms/entries'
+
+      
+      
+#      print email_address
+      
+     # Next, grab all entries for all forms:
     
-#    print next_test.json()
+#    print recent_entries_json['response']
+    
+#    print recent_entries.json()
     
     
     
