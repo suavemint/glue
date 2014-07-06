@@ -2,32 +2,61 @@ import psycopg2 as psql, sys, csv, logging, time
 import datetime
 from timer import timeit
 
+def initial_headers(labels, vals):
+    output_schema_list = []
+    for l, v in zip(labels, vals):
+        chk = type(check_and_set_type(v))
+        if chk == int:
+            if v > 2147483647:
+                output_schema_list.append('%s bigint' % l)
+            else:
+                output_schema_list.append('%s integer' % l)
+        elif chk == float:
+            output_schema_list.append('%s double' % l)
+        elif isinstance(chk, datetime.date):
+            output_schema_list.append('%s date' % l)
+        else:
+            output_schema_list.append('%s varchar' % l)
+#    print output_schema_list
+    return output_schema_list
+
+def return_type_in_psql_type_string(h_string):
+    chk = type(check_and_set_type(h_string))
+#    print chk
+    if chk == int:
+        return 'integer'
+    elif chk == float:
+        return 'double'
+    elif isinstance(chk,datetime.date):
+        return 'date'
+    else:
+        return 'varchar'
+
 ## NB: For large files (>131,074 b? B?), set csv.field_size_limit(N) for N > 131074
 @timeit
 def generate_schema(i):
 
-    import csv, logging#, time
-
-    #schema_start_time = time.time()
+    import csv, logging
 
     logging.basicConfig(level=logging.DEBUG)
     logger = logging.getLogger(__name__)
 
     header_max_values, header_types, table_data = [], [], []
-    d = ''
 
-    print 'Input file is',i
+    #print 'Input file is',i
 
-    if i.lower().endswith('.tab'):
-        d = '\t'
-    if i.lower().endswith('.csv'):
-        d = ','
+    # Try to simply accept a row item, instead of an entire file, to speed up process    
+    d = check_input_filetype(i)
         
-#    in_file = open(i,'rb')
-    csv_file = csv.reader(open(i,'rb'), delimiter=d, quoting=csv.QUOTE_NONE)    
+    in_file = open(i,'rb')
+    csv_file = csv.reader(open(i,'rb'), delimiter=d)
     header_labels = csv_file.next()#.split(',')
+
+    print 'There are %i columns in this file.'%len(header_labels)
     trimmed_end = header_labels[-1].replace('\r\n','')
     header_labels[-1] = trimmed_end
+    if header_labels[0] == '\xef\xbb\xbfSEQUENCE':
+        header_labels[0] = 'SEQUENCE'
 
     # Clean the column titles.
     for entry in header_labels:
@@ -37,44 +66,57 @@ def generate_schema(i):
         if '@' in entry:
             header_labels[index] = entry.replace('@','at')
 
-    # Loop over rows in csv.
+    sample_values = csv_file.next()
+
+#    type_dict = {'varchar' : str,
+#                 'bigint'  : int,
+#                 'date'    : datetime.date,
+#                 'float'   : float}
+
+    # Generate the schema-related string.
+    schema_list = initial_headers(header_labels, sample_values)
+
+    # Contrary to the next comment block, let's piece-by-piece varchar-out troublesome columns:
+    # 1. Address fields can give trouble, such as with address1 or likely AA ethnic code (6E), so fix those:
+    lexis_non_grata = ('address','lalethniccode')
+
+    
+    for l in schema_list:
+        for s in lexis_non_grata:
+            if s in l.lower():
+                logger.debug('Found a PNG: %s' % l)
+                index = schema_list.index(l)
+                varname, ttype = l.split(' ')
+                schema_list[index] = varname + ' varchar'            
+
+    row_c = 0
+    # Loop over rows in csv to generate the maximum lengths of the columns, if applicable.
     for row in csv_file:
-        for entry in row:
+        row_c += 1
+        for index, entry in enumerate(row):
             length = len(entry)
-            index = row.index(entry)
-#            print length,
             if length > header_max_values[index]:
                 header_max_values[index] = length
-            else:
-                continue
+
+    # Knowing now the maximum values, insert the max values for the pertinent header items: varchar(n).
+    for i,o in enumerate(schema_list):
+        if 'varchar' in o:
+            schema_list[i] += '(%s)' % header_max_values[i]
 
     # Generate the outputted string, which will contain the variable type and char-limit for each column.
-    string_to_add = ''
-    
-    header_string = ','.join([x for x in header_labels])
+    print 'Number of rows considered: %i' % (row_c)
 
-    for x, num in zip(header_labels, header_max_values):
-        #string_to_add = ''
-        chk = type(x)
-        if chk == int:
-            string_to_add += '%s integer, '
-        elif chk == float:
-            string_to_add += '%s double, '
-        else:
-            string_to_add += '%s varchar(%s), ' % (x, num)
+    # And with a patched-up list, make it into a string for the schema command.
+    schema_string = ', '.join(schema_list)
             
-#        string_to_add += '%s varchar(%s), ' % (x, num)
-#        string_to_add += 
-#    schema_end_time = time.time()
-#    print 'Schema generation took %.2f seconds.' % (schema_end_time - schema_start_time)
+    return header_labels, schema_list
 
-    return header_string, string_to_add
-
-
-heuristics = (lambda value: datetime.strptime(value, '%m-%d-%Y'), int, float)
 
 def check_and_set_type(n):
+    import datetime
     """ Based on inputted vartype, we want a string back out for PSQL."""
+
+    heuristics = (lambda value: datetime.datetime.strptime(value, '%m-%d-%Y'), int, float)    
 
     for type in heuristics:
         try:
@@ -98,107 +140,78 @@ def runit():
     
     import sys
     
-    logging.basicConfig(level=logging.DEBUG)
+    logging.basicConfig(level=logging.WARNING)
     logger = logging.getLogger(__name__)
     logger.debug('Running script...')
     logger.debug('Begin opening CSV/TAB file.')
 
     d = ''
-#    f_name = 'clipped.csv'
-    f_name = 'FL GOP 050914.csv'
-#    schema_string, header_labels = generate_schema(f_name)
-    header_labels, schema_string = generate_schema(f_name)
 
-#    print schema_string
-#    print; print
-#    print header_labels
+#    f_name, schema_name, table_name = 'clipped.csv', 'clipped', 'clipped'
+#    f_name, schema_name, table_name = 'FL GOP 050914.csv', 'test_schema', 'fl_test_table'
+    f_name, schema_name, table_name = '/home/james/OH God File.csv', 'oh_god_schema2', 'oh_god_test2'
 
-    schema_name = 'test_schema'
-    table_name = 'test_table'
-    sample_schema_cmd = 'CREATE %s' % schema_name
 
-#    print schema_string
-        
-    # TODO: consider NOT NULL cases, etc. Is this constraint applicable to our case(s)?
-    sample_schema = 'CREATE TABLE %s (%s)' % (table_name, schema_string[:-2])
-#    print sample_schema
-
-    # Now that we have the entire SQL query ready to go, let's dump it in a PSQL DB:
     connection = None
+
+    header_labels, schema_list = generate_schema(f_name)
+    num_args = len(header_labels)
+            
+    schema_string = ', '.join(schema_list)
+    # Postpending the primary key determination gives us flexiblity otherwise lost by editing the
+    # + schema *list* directly.
+    if 'LALVOTERID' in schema_list:
+        schema_string += ', PRIMARY KEY (LALVOTERID)'
+    else:
+        logger.warning('Primary key \"LALVOTERID\" not found; going sans p-key.')
 
     logger.info('Starting DB ops.')
 
-    try:
+    try:        
         connection = psql.connect(database='testdb',user='postgres',password='password')
         cursor = connection.cursor()
 
-        num_args = len(header_labels)
-
-        cursor.execute('DROP TABLE IF EXISTS %s' % table_name)
-        cursor.execute(sample_schema)
-
-        command_str = 'INSERT INTO %s VALUES' % table_name
-
-        db_start_time = time.time()
-
         # Open the input file again, skipping header row, and write-in each row.
-#        print 50*'='
-        with open(f_name,'rb') as f:
-            input_file = csv.reader(f, delimiter=check_input_filetype(f_name), quoting=csv.QUOTE_NONE)
+        row_c = 0
+        with open(f_name,'rb') as f:      
+#            input_file = csv.reader(f, delimiter=check_input_filetype(f_name), quoting=csv.QUOTE_NONE)
+#            input_file = csv.reader(f, delimiter=check_input_filetype(f_name), quoting=csv.QUOTE_ALL)
+            input_file = csv.reader(f, delimiter=check_input_filetype(f_name), dialect='excel')
             input_file.next()
+            
+            cursor.execute('DROP TABLE IF EXISTS %s' % table_name)
+            
+            sample_schema = 'CREATE TABLE %s (%s)' % (table_name, schema_string)  # NB: previously had sliced [:-2] to remove the terminal ', ' from the string.    
+            cursor.execute(sample_schema)            
+#            header_labels = generate_schema(input_file.next())
+            column_labels = ', '.join(header_labels)
+                             
             for row in input_file:
-                for entry in row:
-                    i = row.index(entry)                    
-                    #print entry,
+                row_c += 1
+                #if row_c < 7:
+                    #sys.exit(1)
+                for i, entry in enumerate(row):
+                    if entry == ' ':
+                        entry = None
                     row[i] = psql.extensions.adapt(entry).getquoted()
-                values = ','.join([z for z in row])
-#                print values
-                insert_query = 'INSERT INTO %s(%s) VALUES (%s)' % (table_name, header_labels, values)
+                    
+                values = ','.join([x for x in row])
+                insert_query = 'INSERT INTO %s(%s) VALUES (%s)' % (table_name, column_labels, values)
+#                insert_query = 'INSERT INTO %s(%s) VALUES (%s)' % (table_name, header_labels, values)
+#                print insert_query
+#                sys.exit(1)
+                
                 try:
                     cursor.execute(insert_query)
                 except Exception, e:
+                        #print row
+                        #print values
                     # SQL syntax errors don't have a specific etype in psycopg2...
-                    print 'Error returned:', e
-                    print header_labels, '\n\n', values, '\n\n', insert_query
-                    sys.exit(1)
-        #for row in table_data:
-    #        print row
-    #        print 'Length of row items:', len(row)
-    #        for entry in row:
-    #           print entry
-                #if entry == '' or entry == ' ':
-                #    row[i] = None    
-    ##            if ' ' in entry and entry is not ' ':
-    ##                row[i] = psql.extensions.adapt(entry).getquoted()
-            #row[i] = '\"'+entry+'\"'
-            #print str(entry)
-                #row[i] = psql.extensions.adapt(entry).getquoted()  # FIXME: May not need to adapt() every single GD entry...
+                    logger.warn('Error returned:', e)
+                    logger.warn('SQL error code', e.pgcode)
+#                    sys.exit(1)
 
-    ##        row = tuple(row)
-    ##  tuple_string = '"('+ num_args*'%s, '
-    ##  tuple_string = tuple_string[:-1] + ')"'
-
-        
-    #       sys.exit(1)
-        #print num_args
-        #print tuple_string
-
-    # These following two numbers should be and are 64, so they match up in length.    
-    #    print len(tuple_string.split(', '))
-    #    print len(row)#print len(row)
-
-        #sys.exit(1)
-
-    ##    query = ','.join( cursor.mogrify(tuple_string, x) for x in row )
-        #print query
-            #cursor.execute( 'INSERT INTO %s (%s) VALUES (%s)' % (table_name, ','.join([x for x in header_labels]), ','.join([x for x in row])) )
-        # FIXME: May not need to specify the column names for each execution... try it without the first list.  <-- NOT TRUE!
-        #cursor.execute( command_str + query )
-    #    query = 'INSERT INTO test_table 
-    #    cursor.executemany(
         connection.commit()
-        db_end_time = time.time()
-        logger.info('DB write ops took %.2f seconds.' % (db_end_time - db_start_time))
         
     except psql.DatabaseError, e:
         if connection:
