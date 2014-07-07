@@ -17,8 +17,8 @@ def initial_headers(labels, vals):
             output_schema_list.append('%s date' % l)
         else:
             output_schema_list.append('%s varchar' % l)
-#    print output_schema_list
     return output_schema_list
+
 
 def return_type_in_psql_type_string(h_string):
     chk = type(check_and_set_type(h_string))
@@ -32,6 +32,7 @@ def return_type_in_psql_type_string(h_string):
     else:
         return 'varchar'
 
+    
 ## NB: For large files (>131,074 b? B?), set csv.field_size_limit(N) for N > 131074
 @timeit
 def generate_schema(i):
@@ -126,6 +127,7 @@ def check_and_set_type(n):
     # If input fails all heuristics, input is defaulted to string
     return n
 
+
 def check_input_filetype(in_f):
     ext = in_f.split('.')[1].lower()
     if ext == 'csv':
@@ -135,6 +137,7 @@ def check_input_filetype(in_f):
     else:
         raise 'Input file is not of TAB or CSV type.'
 
+    
 @timeit
 def runit():
     
@@ -158,13 +161,19 @@ def runit():
     num_args = len(header_labels)
             
     schema_string = ', '.join(schema_list)
-    # Postpending the primary key determination gives us flexiblity otherwise lost by editing the
+    
+    # Postpending the primary key determination to the string gives us flexiblity otherwise lost by editing the
     # + schema *list* directly.
-    if 'LALVOTERID' in schema_list:
-        schema_string += ', PRIMARY KEY (LALVOTERID)'
-    else:
-        logger.warning('Primary key \"LALVOTERID\" not found; going sans p-key.')
 
+    for k in schema_list:
+        if 'LALVOTERID' in k:
+            schema_string += ', PRIMARY KEY (LALVOTERID)'
+            break
+        else:
+            logger.warning('Primary key \"LALVOTERID\" not found; going sans p-key.')
+
+    print schema_list; sys.exit(1)
+            
     logger.info('Starting DB ops.')
 
     try:        
