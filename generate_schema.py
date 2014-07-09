@@ -172,7 +172,7 @@ def runit():
         else:
             logger.warning('Primary key \"LALVOTERID\" not found; going sans p-key.')
 
-    print schema_list; sys.exit(1)
+    print schema_string; sys.exit(1)
             
     logger.info('Starting DB ops.')
 
@@ -197,8 +197,6 @@ def runit():
                              
             for row in input_file:
                 row_c += 1
-                #if row_c < 7:
-                    #sys.exit(1)
                 for i, entry in enumerate(row):
                     if entry == ' ':
                         entry = None
@@ -206,9 +204,6 @@ def runit():
                     
                 values = ','.join([x for x in row])
                 insert_query = 'INSERT INTO %s(%s) VALUES (%s)' % (table_name, column_labels, values)
-#                insert_query = 'INSERT INTO %s(%s) VALUES (%s)' % (table_name, header_labels, values)
-#                print insert_query
-#                sys.exit(1)
                 
                 try:
                     cursor.execute(insert_query)

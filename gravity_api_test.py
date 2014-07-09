@@ -1,5 +1,4 @@
 def calculate_signature(string_to_sign, private_key):
-
     from hashlib import sha1
     import hmac, binascii, base64
 
@@ -38,9 +37,11 @@ def call_url(method='GET', route='forms'):
   url = base_url + route + '/?api_key=' + public_key + '&signature=' + signature + '&expires=' + current_time
 #  print url
   request = requests.get(url)
-#  print request.content
-  
-  if request is None or request.json()['response'] == 'Not authorized':
+  req_json = request.json()['response']
+
+  # The server is not the best at receiving calls, so try again if the call fails.
+  # It should succeed after a few tries.
+  if request is None or req_json == 'Not authorized' or req_json == 'N':
     print 'Not authorized. Trying again...'
     time.sleep(1)
     call_url(method, route)
@@ -58,21 +59,10 @@ def call_url(method='GET', route='forms'):
     time.sleep(2)
     call_url(url, method, route)
   
-#  if request['response'] != 'Not available':  
-#    print 'Forms retrieved from %s' % url
-#    return requests.get(url)
-#  print 'Waiting two seconds...'
-#  time.sleep(2)
-#  call_url(url, method, route)
-##
-# END call_url
-##
 
-
-###
 if __name__ == '__main__':
   
-    import requests, logging
+    import requests, logging, sys
 
     base_url = 'http://www.reclaimamericapac.com/gravityformsapi/'
     public_key = '5dd413313e'
@@ -92,12 +82,13 @@ if __name__ == '__main__':
     forms = test_request.json()['response']
     
 #    print forms['60']
+#    sys.exit(1)
     
 #    form_dict = {forms[k] for k in forms}
 #    print form_dict
-    
+#    if forms[0] != 'N':    
     form_numbers_dict = [x for x in forms]
-#    print form_numbers_dict
+    print form_numbers_dict
     
     complete_entries_dict = {}
     
@@ -153,29 +144,42 @@ if __name__ == '__main__':
         recent_entries_output = csv.writer(f)
 #      for row in recent_entries_json:   
         for entry in recent_entries_json['entries']:
-          payment = entry['payment_method']
-          payment_amount = entry['payment_amount']
-          payment_status = entry['payment_status']
-          payment_date = entry['payment_date']
-          transaction_id = entry['transaction_id']
-          transaction_type = entry['transaction_type']
-          currency = entry['currency']
-          
-          id = entry['id']
-          created_by = entry['created_by']
-          first_name = entry['1']
-          last_name = entry['2']
-          zip_code = entry['3']
-          email_address = entry['4']
-          
-          ip = entry['ip']
-          facebook_profile_link = entry['5']
+          try:
+#          print entry
+              payment = entry['payment_method']
+              payment_amount = entry['payment_amount']
+              payment_status = entry['payment_status']
+              payment_date = entry['payment_date']
+              transaction_id = entry['transaction_id']
+              transaction_type = entry['transaction_type']
+              currency = entry['currency']
+              
+              id = entry['id']
+              created_by = entry['created_by']
+              first_name = entry['1']
+              last_name = entry['2']
+              zip_code = entry['3']
+              email_address = entry['4']
+              
+              ip = entry['ip']
+              source_url = entry['source_url']
+              facebook_profile_link = entry['5']
 
-          status = entry['status']
-          is_starred = entry['is_starred']
-          date_created = entry['date_created']
-          
-          user_agent = entry['user_agent']
+              status = entry['status']
+              is_starred = entry['is_starred']
+              date_created = entry['date_created']
+              
+              user_agent = entry['user_agent']
+
+              print source_url.split('&utm_')              
+
+          except KeyError, e:
+              continue
+
+          # TODO:  v Change the below to keep only email, entry id, entry date, source_url (separated by '&utm_<x>=y', for x={source, medium, content, campaign}.
+
+ 
+#          sys.exit(1)
           
           recent_entries_output.writerow((first_name, last_name, email_address, \
                                           facebook_profile_link, zip_code, created_by, status,\
