@@ -152,8 +152,8 @@ def runit():
 
 #    f_name, schema_name, table_name = 'clipped.csv', 'clipped', 'clipped'
 #    f_name, schema_name, table_name = 'FL GOP 050914.csv', 'test_schema', 'fl_test_table'
-    f_name, schema_name, table_name = '/home/james/OH God File.csv', 'oh_god_schema2', 'oh_god_test2'
-
+#    f_name, schema_name, table_name = '/home/james/OH God File.csv', 'oh_god_schema2', 'oh_god_test2'
+    f_name, schema_name, table_name = '/home/james/Desktop/NE God File.csv','ne_god_schema','ne_god'
 
     connection = None
 
@@ -172,7 +172,7 @@ def runit():
         else:
             logger.warning('Primary key \"LALVOTERID\" not found; going sans p-key.')
 
-    print schema_string; sys.exit(1)
+#    print schema_string; sys.exit(1)
             
     logger.info('Starting DB ops.')
 
@@ -182,9 +182,8 @@ def runit():
 
         # Open the input file again, skipping header row, and write-in each row.
         row_c = 0
-        with open(f_name,'rb') as f:      
-#            input_file = csv.reader(f, delimiter=check_input_filetype(f_name), quoting=csv.QUOTE_NONE)
-#            input_file = csv.reader(f, delimiter=check_input_filetype(f_name), quoting=csv.QUOTE_ALL)
+        with open(f_name,'rb') as f:
+            # NB: Excel dialect fixes column-number problems.
             input_file = csv.reader(f, delimiter=check_input_filetype(f_name), dialect='excel')
             input_file.next()
             
@@ -211,9 +210,10 @@ def runit():
                         #print row
                         #print values
                     # SQL syntax errors don't have a specific etype in psycopg2...
-                    logger.warn('Error returned:', e)
-                    logger.warn('SQL error code', e.pgcode)
-#                    sys.exit(1)
+                    logger.warn('Error returned: {}'.format(e))
+                    if e is not TypeError:
+                        logger.warn('SQL error code {}'.format(e.pgcode))
+                    sys.exit(1)
 
         connection.commit()
         

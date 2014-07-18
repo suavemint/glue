@@ -138,7 +138,7 @@ if __name__ == '__main__':
 #  os.chdir('/Users/eorcutt')
   os.chdir(os.getcwd())
   
-  for zipc in fl_zips:  # FIXME: need to chunk this stuff now. Try in blocks of 100. 
+  for zipc in fl_zips[:5]:  # FIXME: need to chunk this stuff now. Try in blocks of 100. 
   # KIM that l[:100] will produce a sublist of indices [0,99]. So start from [100, 201] for the next one hundred.
     query_url = basicLastNameQueryUrl + '&RegistrationZip5=' + zipc  # Canonical URL for voter-search based on ZIP5.
 
@@ -150,8 +150,11 @@ if __name__ == '__main__':
       zip_json = json.loads(zip_text,object_pairs_hook=OrderedDict)
       zip_text = json.dumps(zip_json)  # have to purge the OrderedDict object; just want a flat string
       zip_json = json.loads(zip_text)
-      
-    zip_json = r.get(query_url).json()
+    
+    try:  
+        zip_json = r.get(query_url).json()
+    except ValueError as e:
+        break
     
     for person in zip_json:  # Consider each dict in the JSON as a person (as above).
     
